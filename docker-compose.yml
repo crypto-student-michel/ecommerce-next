@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    image: ecommerce-next-nextjs:latest
+    ports: ["3000:3000"]
+    env_file: [.env.local]
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - ./northwind/northwind.db:/app/northwind/northwind.db:rw
+    command: bun x next start
+    restart: unless-stopped

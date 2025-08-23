@@ -1,36 +1,110 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## Instalación y configuración
 
-## Getting Started
+Sigue estos pasos para instalar y configurar el proyecto:
 
-First, run the development server:
+1. **Clona el repositorio:**
+    ```powershell
+    git clone <URL-del-repositorio>
+    cd <nombre-del-repositorio>
+    ```
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+2. **Instala las dependencias necesarias:**
+    ```powershell
+    # Por ejemplo, si usas Node.js
+    npm install
+    ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+3. **Configura las variables de entorno:**
+    - Crea un archivo `.env` en la raíz del proyecto.
+    - Añade las variables necesarias según la documentación del proyecto.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+4. **Configuración de Docker y contenedores:**
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+    - **Dockerfile:**  
+      El archivo `Dockerfile` define la imagen personalizada para la aplicación. Asegúrate de que incluya la instalación de dependencias, copia del código fuente y configuración de puertos. Ejemplo básico:
+      ```dockerfile
+      FROM node:18
+      WORKDIR /app
+      COPY package*.json ./
+      RUN npm install
+      COPY . .
+      EXPOSE 3000
+      CMD ["npm", "run", "dev"]
+      ```
 
-## Learn More
+    - **docker-compose.yml:**  
+      Este archivo orquesta los servicios (aplicación, base de datos, etc.). Ejemplo:
+      ```yaml
+      version: '3'
+      services:
+        app:
+          build: .
+          ports:
+            - "3000:3000"
+          env_file:
+            - .env
+          volumes:
+            - .:/app
+          depends_on:
+            - db
+        db:
+          image: postgres:15
+          environment:
+            POSTGRES_USER: user
+            POSTGRES_PASSWORD: password
+            POSTGRES_DB: mydb
+          ports:
+            - "5432:5432"
+      ```
 
-To learn more about Next.js, take a look at the following resources:
+    - **nginx.conf:**  
+      Si usas Nginx como proxy inverso, configura el archivo `nginx.conf` para redirigir el tráfico al contenedor de la aplicación:
+      ```nginx
+      server {
+        listen 80;
+        server_name localhost;
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+        location / {
+          proxy_pass http://app:3000;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+        }
+      }
+      ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+    - **Servicio Nginx en docker-compose:**  
+      Añade un servicio para Nginx en `docker-compose.yml`:
+      ```yaml
+        nginx:
+          image: nginx:alpine
+          ports:
+            - "80:80"
+          volumes:
+            - ./nginx.conf:/etc/nginx/conf.d/default.conf
+          depends_on:
+            - app
+      ```
 
-## Deploy on Vercel
+5. **Comandos para levantar los contenedores:**
+    ```powershell
+    # Construir y levantar los servicios en segundo plano
+    docker-compose up --build -d
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+    # Ver logs de los servicios
+    docker-compose logs -f
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+    # Detener los servicios
+    docker-compose down
+    ```
+
+6. **Comandos de PowerShell para desarrollo local (sin Docker):**
+    ```powershell
+    # Para iniciar el servidor de desarrollo
+    npm run dev
+
+    # O para iniciar la aplicación en producción
+    npm run build
+    npm start
+    ```
+
+Asegúrate de revisar la documentación específica del proyecto para pasos adicionales de configuración, variables de entorno requeridas o comandos personalizados.
