@@ -95,6 +95,12 @@ Sigue estos pasos para instalar y configurar el proyecto:
 
     # Detener los servicios
     docker-compose down
+
+    # Para iniciar el proyecto utilizando docker
+    docker compose start
+
+    # Para parar el proyecto utilizando docker
+    docker compose stop 
     ```
 
 6. **Comandos de PowerShell para desarrollo local (sin Docker):**
