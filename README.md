@@ -11,7 +11,7 @@ Sigue estos pasos para instalar y configurar el proyecto:
 2. **Instala las dependencias necesarias:**
     ```powershell
     # Por ejemplo, si usas Node.js
-    npm install
+    bun install
     ```
 
 3. **Configura las variables de entorno:**
@@ -26,10 +26,10 @@ Sigue estos pasos para instalar y configurar el proyecto:
       FROM node:18
       WORKDIR /app
       COPY package*.json ./
-      RUN npm install
+      RUN bun install
       COPY . .
       EXPOSE 3000
-      CMD ["npm", "run", "dev"]
+      CMD ["bun", "run", "dev"]
       ```
 
     - **docker-compose.yml:**  
