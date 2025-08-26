@@ -100,11 +100,11 @@ Sigue estos pasos para instalar y configurar el proyecto:
 6. **Comandos de PowerShell para desarrollo local (sin Docker):**
     ```powershell
     # Para iniciar el servidor de desarrollo
-    npm run dev
+    bun run dev
 
     # O para iniciar la aplicación en producción
-    npm run build
-    npm start
+    bun run build
+    bun start
     ```
 
 Asegúrate de revisar la documentación específica del proyecto para pasos adicionales de configuración, variables de entorno requeridas o comandos personalizados.
