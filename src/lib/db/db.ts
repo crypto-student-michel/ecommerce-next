@@ -48,11 +48,11 @@ async function ensureCestaTable(dbi: Database<sqlite3.Database, sqlite3.Statemen
   await dbi.exec(`
     CREATE TABLE IF NOT EXISTS cesta (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      productId INTEGER NOT NULL,
+      ProductID INTEGER NOT NULL,
       cestaId TEXT NOT NULL,
       username TEXT NULL,
       cantidad INTEGER NOT NULL,
-      UNIQUE(productId, cestaId)
+      UNIQUE(ProductID, cestaId)
     );
   `);
 }
@@ -284,6 +284,7 @@ export async function getOrder(orderId: string) {
 // ───────────────────────────────────────────────────────────────────────────────
 // Cesta
 // ───────────────────────────────────────────────────────────────────────────────
+
 export async function cesta(
   productId: string,
   cestaId: string,
@@ -295,12 +296,12 @@ export async function cesta(
 
   await db.run(
     `
-    INSERT INTO cesta (productId, cestaId, cantidad, username)
-    VALUES (:productId, :cestaId, :cantidad, :username)
-    ON CONFLICT(productId, cestaId) DO UPDATE SET cantidad = :cantidad
+    INSERT INTO cesta (ProductID, cestaId, cantidad, username)
+    VALUES (:ProductID, :cestaId, :cantidad, :username)
+    ON CONFLICT(ProductID, cestaId) DO UPDATE SET cantidad = :cantidad
   `,
     {
-      ":productId": productId,
+      ":ProductID": productId,
       ":cestaId": cestaId,
       ":cantidad": cantidad,
       ":username": username,
@@ -317,11 +318,11 @@ export async function getCesta(idCesta: string) {
   await ensureCestaTable(db);
   return db.all(
     `
-    SELECT c.productId,
+    SELECT c.ProductID,
            p.ProductName AS ProductName,  -- ← mismo nombre que usas en React
            c.cantidad
     FROM cesta c
-    JOIN Products p ON c.productId = p.ProductID
+    JOIN Products p ON c.ProductID = p.ProductID
     WHERE c.cestaId = ?
   `,
     [idCesta]
@@ -338,10 +339,10 @@ export async function associateCestaIdWithUsername(
 
   const rows = await db.all(
     `
-    SELECT productId, MAX(cantidad) AS cantidad
+    SELECT ProductID, MAX(cantidad) AS cantidad
     FROM cesta
     WHERE username = ? OR cestaId = ?
-    GROUP BY productId
+    GROUP BY ProductID
   `,
     [username, cestaId]
   );
@@ -354,10 +355,10 @@ export async function associateCestaIdWithUsername(
   for (const r of rows as any[]) {
     await db.run(
       `
-      INSERT INTO cesta (productId, cestaId, username, cantidad)
+      INSERT INTO cesta (ProductID, cestaId, username, cantidad)
       VALUES (?, ?, ?, ?)
     `,
-      [r.productId, cestaId, username, r.cantidad]
+      [r.ProductID, cestaId, username, r.cantidad]
     );
   }
 }
@@ -386,13 +387,21 @@ export async function createOrder(username: string, idCesta: string) {
     const orderId = result.lastID;
 
     const cestaItems = await db.all(
+    //   `
+    //   SELECT c.ProductID, c.cantidad, p.UnitPrice
+    //   FROM cesta c
+    //   JOIN Products p ON c.ProductID = p.ProductID
+    //   WHERE c.username = ?
+    // `,
+    //       [username]
+    // );
       `
-      SELECT c.productId, c.cantidad, p.UnitPrice
+      SELECT c.ProductID, c.cantidad, p.UnitPrice
       FROM cesta c
-      JOIN Products p ON c.productId = p.ProductID
-      WHERE c.username = ?
+      JOIN Products p ON c.ProductID = p.ProductID
+      WHERE c.cestaId = ? AND c.username = ?
     `,
-      [username]
+      [idCesta, username] // <-- ¡CORREGIDO! Usamos idCesta y username
     );
 
     for (const item of cestaItems as any[]) {
@@ -401,7 +410,7 @@ export async function createOrder(username: string, idCesta: string) {
         INSERT INTO "Order Details" (OrderID, ProductID, UnitPrice, Quantity, Discount)
         VALUES (?, ?, ?, ?, 0)
       `,
-        [orderId, item.productId, item.UnitPrice, item.cantidad]
+        [orderId, item.ProductID, item.UnitPrice, item.cantidad]
       );
     }
 

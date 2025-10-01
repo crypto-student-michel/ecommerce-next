@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface CestaItem {
-  productId: number;
-  productName: string;
+  ProductID: number;
+  ProductName: string;
   cantidad: number;
 }
 
@@ -69,22 +69,23 @@ export default function Cesta() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {cestaItems.map((item) => (
-            <Card key={item.productId}>
+            <Card key={item.ProductID}>
               <CardHeader>
                 <CardTitle>
                   {/* ✅ detalle en plural /products y query cantidad opcional */}
                   <Link
-                    href={`/products/${item.productId}${
+                    href={`/products/${item.ProductID}${
                       item.cantidad ? `?cantidad=${item.cantidad}` : ""
                     }`}
                     prefetch={false}
                   >
-                    {item.productName}
+                    {item.ProductName}
                   </Link>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p>ID del Producto: {item.productId}</p>
+                <p>Nombre del Producto: {item.ProductName}</p>
+                <p>ID del Producto: {item.ProductID}</p>
                 <p>Cantidad: {item.cantidad}</p>
               </CardContent>
             </Card>

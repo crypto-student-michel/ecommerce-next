@@ -93,7 +93,7 @@ Sigue estos pasos para instalar y configurar el proyecto:
     # Ver logs de los servicios
     docker-compose logs -f
 
-    # Detener los servicios
+    # Detener los servicios y borrar el contenedor 
     docker-compose down
 
     # Para iniciar el proyecto utilizando docker
@@ -112,5 +112,7 @@ Sigue estos pasos para instalar y configurar el proyecto:
     bun run build
     bun start
     ```
+7. **Video-Loom**
+https://www.loom.com/share/b2b3f819faca451892fcbfbd1b6e6aef
 
-Asegúrate de revisar la documentación específica del proyecto para pasos adicionales de configuración, variables de entorno requeridas o comandos personalizados.
+
