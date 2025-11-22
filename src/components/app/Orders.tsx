@@ -15,7 +15,7 @@ function Orders({orders, customerId}: {orders: any[], customerId: string}) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {orders.map((order) => (
+          {orders.map((order: any) => (
             <TableRow key={order.OrderID}>
               <TableCell>
                 <Link href={`/dashboard/${customerId}/orders/${order.OrderID}`}>

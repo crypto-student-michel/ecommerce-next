@@ -30,12 +30,15 @@ export default async function ProductPage({ params, searchParams }: PageProps) {
           <CardTitle>{product.ProductName}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p>Id: {product.ProductID}</p>
-          <p>Price: ${product.UnitPrice}</p>
-          <p>In Stock: {product.UnitsInStock}</p>
-          <Cantidad productoId={product.ProductID} cantidad={cantidad} />
+          <div className="space-y-2">
+            <p>Id: {product.ProductID}</p>
+            <p>Price: ${product.UnitPrice}</p>
+            <p>In Stock: {product.UnitsInStock}</p>
+            <Cantidad productoId={product.ProductID} cantidad={cantidad} />
+          </div>
         </CardContent>
       </Card>
     </div>
   );
 }
+

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { useAuth } from "@/components/app/AuthContext";
-import { getCesta, createOrder } from "@/lib/db/db";
+// ❌ ya no importamos getCesta desde la DB en el cliente
+// import { getCesta } from "@/lib/db/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -18,45 +19,85 @@ interface CestaItem {
 type Params = { idCesta: string };
 
 export default function Cesta() {
-  // ✅ tipamos el parámetro de la ruta como string
   const { idCesta } = useParams<Params>();
 
   const { isLoggedIn, username, loading } = useAuth();
 
   const [cestaItems, setCestaItems] = useState<CestaItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  // ✅ orderId y totalAmount son números (no string)
   const [order, setOrder] = useState<{ orderId: number; totalAmount: number } | null>(null);
 
+  // 🔹 AHORA: obtenemos la cesta desde /api/cesta/[idCesta]
   useEffect(() => {
     async function fetchCesta() {
       try {
-        const items = await getCesta(idCesta);
+        const res = await fetch(`/api/cesta/${idCesta}`);
+
+        if (!res.ok) {
+          console.error("Error HTTP al obtener la cesta:", res.status);
+          setError("Error al cargar la cesta");
+          return;
+        }
+
+        const items: CestaItem[] = await res.json();
         setCestaItems(items);
       } catch (err) {
         console.error(err);
         setError("Error al cargar la cesta");
       }
     }
-    fetchCesta();
+
+    if (idCesta) {
+      fetchCesta();
+    }
   }, [idCesta]);
 
   if (loading) return <div>Loading...</div>;
   if (error) return <div className="text-red-500">{error}</div>;
 
+  // 🔹 Confirmación del pedido usando /api/orders
   const handleConfirmOrder = async () => {
     if (!isLoggedIn || !username) {
       setError("Debes iniciar sesión para confirmar el pedido.");
       return;
     }
+
     try {
-      const { orderId, totalAmount } = await createOrder(username, idCesta);
-      // ✅ guardamos números en el estado
-      setOrder({ orderId: orderId ?? 0, totalAmount: totalAmount ?? 0 });
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username,
+          idCesta: idCesta.toString(),
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        console.error("Error en /api/orders", errorData);
+        setError(errorData?.error ?? "No se pudo confirmar el pedido.");
+        return;
+      }
+
+      const data = await res.json();
+
+      if (!data.orderId) {
+        setError(
+          "No se pudo confirmar el pedido (respuesta incompleta del servidor)."
+        );
+        return;
+      }
+
+      setOrder({
+        orderId: data.orderId,
+        totalAmount: data.totalAmount ?? 0,
+      });
+      setError(null); // limpiamos mensaje de error si lo había
     } catch (e) {
       console.error(e);
-      setError("No se pudo confirmar el pedido.");
+      setError("No se pudo confirmar el pedido (error de red).");
     }
   };
 
@@ -68,11 +109,10 @@ export default function Cesta() {
         <p>Tu cesta está vacía</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {cestaItems.map((item) => (
-            <Card key={item.ProductID}>
+          {cestaItems.map((item, index) => (
+            <Card key={`${item.ProductID}-${index}`}>
               <CardHeader>
                 <CardTitle>
-                  {/* ✅ detalle en plural /products y query cantidad opcional */}
                   <Link
                     href={`/products/${item.ProductID}${
                       item.cantidad ? `?cantidad=${item.cantidad}` : ""

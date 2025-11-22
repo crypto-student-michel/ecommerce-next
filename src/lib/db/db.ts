@@ -30,8 +30,8 @@ function resolveDbPath(): string {
   const candidates = [
     fromEnv,
     path.resolve(process.cwd(), "northwind", "northwind.db"), // recomendado
-    path.resolve(process.cwd(), "prisma", "northwind.db"),    // evita usarlo
-    path.resolve(process.cwd(), "northwind.db"),              // fallback antiguo
+    path.resolve(process.cwd(), "prisma", "northwind.db"),
+    path.resolve(process.cwd(), "northwind.db"),
   ].filter(Boolean) as string[];
 
   for (const p of candidates) {
@@ -48,16 +48,16 @@ async function ensureCestaTable(dbi: Database<sqlite3.Database, sqlite3.Statemen
   await dbi.exec(`
     CREATE TABLE IF NOT EXISTS cesta (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ProductID INTEGER NOT NULL,
+      productId INTEGER NOT NULL,
       cestaId TEXT NOT NULL,
       username TEXT NULL,
       cantidad INTEGER NOT NULL,
-      UNIQUE(ProductID, cestaId)
+      UNIQUE(productId, cestaId)
     );
   `);
 }
 
-/** Garantiza tabla 'cobro' (para evitar errores en consultas de pedidos) */
+/** Garantiza tabla 'cobro' */
 async function ensureCobroTable(dbi: Database<sqlite3.Database, sqlite3.Statement>) {
   await dbi.exec(`
     CREATE TABLE IF NOT EXISTS cobro (
@@ -138,7 +138,6 @@ export async function getProduct(id: number): Promise<Product | null> {
   return row ?? null;
 }
 
-// Alias (si en algún punto usas getProductById)
 export const getProductById = getProduct;
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -161,7 +160,7 @@ async function ensureCustomer(username: string) {
 
 export async function insertUser(
   username: string,
-  password: string, // llega hasheado
+  password: string, // ya hasheado
   acceptPolicy: boolean,
   acceptMarketing: boolean
 ) {
@@ -235,10 +234,8 @@ export async function saveCustomer(customerId: string, values: any) {
   );
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
 export async function getCustomerOrders(customerId: string) {
   const db = await getDb();
-  // 'cobro' está garantizada por ensureCobroTable()
   return db.all(
     `
     SELECT
@@ -294,20 +291,31 @@ export async function cesta(
   const db = await getDb();
   await ensureCestaTable(db);
 
+  const productIdNumber = Number(productId);
+  if (!Number.isFinite(productIdNumber)) {
+    throw new Error(`cesta(): productId inválido: ${productId}`);
+  }
+
+  const cantidadNumber = Number(cantidad);
+  if (!Number.isFinite(cantidadNumber) || cantidadNumber < 0) {
+    throw new Error(`cesta(): cantidad inválida: ${cantidad}`);
+  }
+
   await db.run(
     `
-    INSERT INTO cesta (ProductID, cestaId, cantidad, username)
-    VALUES (:ProductID, :cestaId, :cantidad, :username)
-    ON CONFLICT(ProductID, cestaId) DO UPDATE SET cantidad = :cantidad
+    INSERT INTO cesta (productId, cestaId, cantidad, username)
+    VALUES (:productId, :cestaId, :cantidad, :username)
+    ON CONFLICT(productId, cestaId) DO UPDATE SET cantidad = :cantidad
   `,
     {
-      ":ProductID": productId,
+      ":productId": productIdNumber,
       ":cestaId": cestaId,
-      ":cantidad": cantidad,
-      ":username": username,
+      ":cantidad": cantidadNumber,
+      ":username": username ?? null,
     }
   );
 
+  // Si la cantidad queda a 0, eliminamos la fila
   await db.run(`DELETE FROM cesta WHERE cestaId = :cestaId AND cantidad = 0`, {
     ":cestaId": cestaId,
   });
@@ -318,11 +326,11 @@ export async function getCesta(idCesta: string) {
   await ensureCestaTable(db);
   return db.all(
     `
-    SELECT c.ProductID,
-           p.ProductName AS ProductName,  -- ← mismo nombre que usas en React
+    SELECT c.productId AS ProductID,
+           p.ProductName AS ProductName,
            c.cantidad
     FROM cesta c
-    JOIN Products p ON c.ProductID = p.ProductID
+    JOIN Products p ON c.productId = p.ProductID
     WHERE c.cestaId = ?
   `,
     [idCesta]
@@ -339,10 +347,10 @@ export async function associateCestaIdWithUsername(
 
   const rows = await db.all(
     `
-    SELECT ProductID, MAX(cantidad) AS cantidad
+    SELECT productId, MAX(cantidad) AS cantidad
     FROM cesta
     WHERE username = ? OR cestaId = ?
-    GROUP BY ProductID
+    GROUP BY productId
   `,
     [username, cestaId]
   );
@@ -353,12 +361,27 @@ export async function associateCestaIdWithUsername(
   ]);
 
   for (const r of rows as any[]) {
+    const productIdNumber = Number(r.productId);
+    const cantidadNumber = Number(r.cantidad);
+
+    if (!Number.isFinite(productIdNumber)) {
+      console.warn(
+        "associateCestaIdWithUsername: fila con productId inválido, se omite:",
+        r
+      );
+      continue;
+    }
+
+    if (!Number.isFinite(cantidadNumber) || cantidadNumber <= 0) {
+      continue;
+    }
+
     await db.run(
       `
-      INSERT INTO cesta (ProductID, cestaId, username, cantidad)
+      INSERT INTO cesta (productId, cestaId, username, cantidad)
       VALUES (?, ?, ?, ?)
     `,
-      [r.ProductID, cestaId, username, r.cantidad]
+      [productIdNumber, cestaId, username, cantidadNumber]
     );
   }
 }
@@ -371,40 +394,46 @@ export async function createOrder(username: string, idCesta: string) {
   try {
     await db.run("BEGIN TRANSACTION");
 
-    const customer = await db.get(
+    // 1) Aseguramos el customer
+    await ensureCustomer(username);
+
+    const customer = await db.get<{ CustomerID: string }>(
       "SELECT CustomerID FROM Customers WHERE CustomerID = ?",
       [username]
     );
     if (!customer) {
-      throw new Error("Customer not found");
+      throw new Error(`createOrder: customer no encontrado para ${username}`);
     }
 
+    // 2) Creamos el pedido
     const orderDate = new Date().toISOString();
     const result = await db.run(
       `INSERT INTO Orders (CustomerID, OrderDate) VALUES (?, ?)`,
       [customer.CustomerID, orderDate]
     );
-    const orderId = result.lastID;
+    const orderId = result.lastID as number | undefined;
+    if (!orderId) {
+      throw new Error("createOrder: no se pudo obtener lastID de Orders");
+    }
 
-    const cestaItems = await db.all(
-    //   `
-    //   SELECT c.ProductID, c.cantidad, p.UnitPrice
-    //   FROM cesta c
-    //   JOIN Products p ON c.ProductID = p.ProductID
-    //   WHERE c.username = ?
-    // `,
-    //       [username]
-    // );
-      `
-      SELECT c.ProductID, c.cantidad, p.UnitPrice
-      FROM cesta c
-      JOIN Products p ON c.ProductID = p.ProductID
-      WHERE c.cestaId = ? AND c.username = ?
-    `,
-      [idCesta, username] // <-- ¡CORREGIDO! Usamos idCesta y username
-    );
+    // 3) Obtenemos los items de la cesta (TIPADO EXPLÍCITO)
+    const cestaItems: { ProductID: number; cantidad: number; UnitPrice: number }[] =
+      await db.all(
+        `
+        SELECT c.productId AS ProductID, c.cantidad, p.UnitPrice
+        FROM cesta c
+        JOIN Products p ON c.productId = p.ProductID
+        WHERE c.cestaId = ?
+      `,
+        [idCesta]
+      );
 
-    for (const item of cestaItems as any[]) {
+    if (!cestaItems || cestaItems.length === 0) {
+      throw new Error(`createOrder: cesta vacía para idCesta=${idCesta}`);
+    }
+
+    // 4) Insertamos las líneas de detalle
+    for (const item of cestaItems) {
       await db.run(
         `
         INSERT INTO "Order Details" (OrderID, ProductID, UnitPrice, Quantity, Discount)
@@ -414,7 +443,8 @@ export async function createOrder(username: string, idCesta: string) {
       );
     }
 
-    const totalResult = await db.get(
+    // 5) Calculamos el total del pedido (TIPADO EXPLÍCITO)
+    const totalRow = await db.get<{ TotalAmount: number }>(
       `
       SELECT SUM(UnitPrice * Quantity) as TotalAmount
       FROM "Order Details"
@@ -422,9 +452,10 @@ export async function createOrder(username: string, idCesta: string) {
     `,
       [orderId]
     );
-    const totalAmount = (totalResult as any)?.TotalAmount ?? 0;
+    const totalAmount = totalRow?.TotalAmount ?? 0;
 
-    await db.run("DELETE FROM cesta WHERE username = ?", [username]);
+    // 6) Limpiamos la cesta
+    await db.run(`DELETE FROM cesta WHERE cestaId = ?`, [idCesta]);
 
     await db.run("COMMIT");
 
@@ -436,6 +467,7 @@ export async function createOrder(username: string, idCesta: string) {
   }
 }
 
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Cobro
 // ───────────────────────────────────────────────────────────────────────────────
@@ -446,7 +478,7 @@ export async function saveCobro(
   authorizationCode: string
 ) {
   const db = await getDb();
-  await ensureCobroTable(db); // por si acaso
+  await ensureCobroTable(db);
   const fecha = new Date().toISOString();
   const res = await db.run(
     `INSERT INTO cobro (orderId, customerId, amount, fecha, authorizationCode)
@@ -457,7 +489,7 @@ export async function saveCobro(
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Cambio de contraseña (simple)
+// Cambio de contraseña
 // ───────────────────────────────────────────────────────────────────────────────
 export async function setPassword(
   customerId: string,

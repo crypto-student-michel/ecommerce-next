@@ -1,18 +1,26 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { useAuth } from '@/components/app/AuthContext';
-import { cesta } from '@/lib/db/db';
-import Link from 'next/link';
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/components/app/AuthContext";
+import { cesta } from "@/lib/db/db";
+import Link from "next/link";
 
+// la cantidad mínima ahora es 1 (coincide con el mensaje)
 const formSchema = z.object({
-  cantidad: z.number().min(0, { message: 'La cantidad debe ser al menos 1' }),
+  cantidad: z.number().min(1, { message: "La cantidad debe ser al menos 1" }),
 });
 
 interface CantidadProps {
@@ -25,27 +33,29 @@ export default function Cantidad({ productoId, cantidad }: CantidadProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState(false);
-  
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      cantidad
+      // si no viene cantidad, empezamos en 1
+      cantidad: cantidad ?? 1,
     },
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    
     setIsLoading(true);
     setSuccess(false);
     setError(false);
     try {
-      
-      await cesta(productoId.toString(), idCesta.toString(), username, values.cantidad);
+      await cesta(
+        productoId.toString(),
+        idCesta.toString(),
+        username,
+        values.cantidad
+      );
       setSuccess(true);
-      // Aquí puedes añadir lógica adicional después de añadir a la cesta
     } catch (error) {
-      console.error('Error al añadir a la cesta:', error);
+      console.error("Error al añadir a la cesta:", error);
       setError(true);
     } finally {
       setIsLoading(false);
@@ -62,28 +72,47 @@ export default function Cantidad({ productoId, cantidad }: CantidadProps) {
             <FormItem>
               <FormLabel>Cantidad</FormLabel>
               <FormControl>
-                <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value))} />
+                <Input
+                  type="number"
+                  {...field}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value, 10);
+                    field.onChange(isNaN(value) ? 0 : value);
+                  }}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
         <Button type="submit" disabled={isLoading} className="mt-8">
-          {isLoading ? 'Añadiendo...' : 'Añadir a la cesta'}
+          {isLoading ? "Añadiendo..." : "Añadir a la cesta"}
         </Button>
       </form>
-      {success && <p className="text-green-500">
-        
-        <div className="mt-2">
-          <Link href="/products" className="text-blue-500 hover:underline mr-4">Seguir comprando</Link>
-          <Link href={`/cesta/${idCesta}`} className="text-blue-500 hover:underline">Ver cesta</Link>
+
+      {success && (
+        <div className="mt-2 text-green-500">
+          <p>Producto añadido a la cesta correctamente</p>
+          <div className="mt-2">
+            <Link
+              href="/products"
+              className="text-blue-500 hover:underline mr-4"
+            >
+              Seguir comprando
+            </Link>
+            <Link
+              href={`/cesta/${idCesta}`}
+              className="text-blue-500 hover:underline"
+            >
+              Ver cesta
+            </Link>
+          </div>
         </div>
-        Producto añadido a la cesta correctamente
-        </p>
-        
-        }
-      {error && <p className="text-red-500">Error al añadir a la cesta</p>}
+      )}
+
+      {error && (
+        <p className="text-red-500">Error al añadir a la cesta</p>
+      )}
     </Form>
   );
 }
-
