@@ -1,8 +1,6 @@
-"use server";
-
 import cryptojs from "crypto-js";
 
-type RedsysCheckoutResponse = {
+export type RedsysCheckoutResponse = {
   signatureVersion: string;
   merchantParameters: string;
   signature: string;
