@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import cryptojs from "crypto-js";
 
 export type RedsysCheckoutResponse = {
@@ -7,36 +9,31 @@ export type RedsysCheckoutResponse = {
   url: string;
 };
 
+const REDSYS_URL =
+  process.env.NEXT_PUBLIC_REDSYS_URL ??
+  "https://sis-t.redsys.es:25443/sis/realizarPago";
+
+/**
+ * Genera los datos necesarios para el formulario POST a Redsys
+ * (URL, Ds_SignatureVersion, Ds_MerchantParameters, Ds_Signature).
+ *
+ * OJO: amount debe venir en céntimos, en string, ej: "12800"
+ */
 export async function getRedsysCheckout(
   customerId: string,
   origin: string,
   amount: string,
   orderId: string
 ): Promise<RedsysCheckoutResponse> {
-  // Validación básica de parámetros
-  if (!customerId || !origin || !amount || !orderId) {
-    throw new Error("Parámetros inválidos en getRedsysCheckout");
+  const secret = process.env.NEXT_PUBLIC_REDSYS_SECRET;
+  if (!secret) {
+    throw new Error("Falta la variable NEXT_PUBLIC_REDSYS_SECRET en .env.local");
   }
 
-  // Clave secreta de Redsys (en Base64)
-  const redsysSecret = process.env.NEXT_PUBLIC_REDSYS_SECRET;
-  if (!redsysSecret) {
-    throw new Error(
-      "Redsys no está configurado: falta NEXT_PUBLIC_REDSYS_SECRET en el fichero .env.local"
-    );
-  }
-
-  // URL del entorno Redsys (test o producción)
-  const redsysUrl = process.env.NEXT_PUBLIC_REDSYS_URL;
-  if (!redsysUrl) {
-    throw new Error(
-      "Redsys no está configurado: falta NEXT_PUBLIC_REDSYS_URL en el fichero .env.local"
-    );
-  }
-
+  // Datos que exige Redsys
   const tpvdata = {
     DS_MERCHANT_AMOUNT: amount,
-    DS_MERCHANT_CURRENCY: "978",
+    DS_MERCHANT_CURRENCY: "978", // EUR
     DS_MERCHANT_MERCHANTCODE: "999008881",
     DS_MERCHANT_ORDER: orderId,
     DS_MERCHANT_TERMINAL: "001",
@@ -47,15 +44,14 @@ export async function getRedsysCheckout(
     DS_MERCHANT_URLOK: `${origin}/ok/?orderId=${orderId}&amount=${amount}&customerId=${customerId}`,
   };
 
-  // 1) merchantParameters en Base64
+  // 1) MerchantParameters: JSON -> UTF8 -> Base64
   const merchantWordArray = cryptojs.enc.Utf8.parse(JSON.stringify(tpvdata));
   const merchantBase64 = merchantWordArray.toString(cryptojs.enc.Base64);
 
-  // 2) Clave (secreta Redsys) en WordArray
-  const keyWordArray = cryptojs.enc.Base64.parse(redsysSecret);
-
-  // 3) Cifrado 3DES del DS_MERCHANT_ORDER
+  // 2) Clave 3DES derivada del secreto (entorno de pruebas)
+  const keyWordArray = cryptojs.enc.Base64.parse(secret);
   const iv = cryptojs.enc.Hex.parse("0000000000000000");
+
   const cipher = cryptojs.TripleDES.encrypt(
     tpvdata.DS_MERCHANT_ORDER,
     keyWordArray,
@@ -66,15 +62,14 @@ export async function getRedsysCheckout(
     }
   );
 
-  // 4) Firma HMAC-SHA256
+  // 3) Firma HMAC-SHA256(merchantBase64, 3DES(orderId))
   const signature = cryptojs.HmacSHA256(merchantBase64, cipher.ciphertext);
   const signatureBase64 = signature.toString(cryptojs.enc.Base64);
 
-  // 5) Respuesta para el formulario Redsys
   return {
     signatureVersion: "HMAC_SHA256_V1",
     merchantParameters: merchantBase64,
     signature: signatureBase64,
-    url: redsysUrl,
+    url: REDSYS_URL,
   };
 }

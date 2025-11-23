@@ -41,6 +41,7 @@ export function Redsys({ amount, orderId }: RedsysProps) {
   // Tarjeta: 4548810000000003
   // Caducidad: 12/29
   // CVC: 123
+  // ALFKI
 
   return (
     <form action={redsys.url} method="POST" name="redsys-checkout">
