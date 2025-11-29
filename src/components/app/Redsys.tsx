@@ -1,47 +1,54 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getRedsysCheckout, type RedsysCheckoutResponse } from "@/lib/redsys";
+import {
+  getRedsysCheckout,
+  type RedsysCheckoutResponse,
+} from "@/lib/redsys";
 import { Button } from "@/components/ui/button";
 
 interface RedsysProps {
-  amount: string;   // importe en céntimos, como string (ej: "19800")
-  orderId: string;  // ID del pedido (OrderID)
+  amount: number;   // importe en euros (ej: 441)
+  orderId: number;  // ID del pedido (OrderID de tu tabla)
 }
 
-export function Redsys({ amount, orderId }: RedsysProps) {
+export default function Redsys({ amount, orderId }: RedsysProps) {
   // /dashboard/[customerId]/orders/[orderId]
   const { customerId } = useParams<{ customerId: string }>();
 
   const [redsys, setRedsys] = useState<RedsysCheckoutResponse | null>(null);
 
   useEffect(() => {
-    // Aseguramos que estamos en el navegador y que tenemos customerId
+    // Aseguramos navegador + customerId
     if (!customerId) return;
     if (typeof window === "undefined") return;
 
     const origin = window.location.origin;
 
-    getRedsysCheckout(customerId as string, origin, amount, orderId)
-      .then((redsysData: RedsysCheckoutResponse) => {
-        setRedsys(redsysData);
-      })
-      .catch((error: any) => {
-        console.error("Error fetching Redsys data:", error);
-      });
+    try {
+      // 1) Pasamos de euros a céntimos
+      const amountInCents = Math.round(Number(amount) * 100);
+
+      // 2) Llamada a la función de Redsys (lado servidor)
+      const redsysData = getRedsysCheckout(
+        customerId,
+        origin,
+        amountInCents,
+        orderId
+      );
+
+      setRedsys(redsysData);
+    } catch (error: any) {
+      console.error("Error fetching Redsys data:", error);
+    }
   }, [customerId, amount, orderId]);
 
+  // Mientras no tengamos los datos, no mostramos nada
   if (!redsys) {
-    return null; // o un loader si quieres
+    return null;
   }
-
-  // Datos de prueba:
-  // Tarjeta: 4548810000000003
-  // Caducidad: 12/29
-  // CVC: 123
-  // ALFKI
 
   return (
     <form action={redsys.url} method="POST" name="redsys-checkout">
@@ -55,11 +62,7 @@ export function Redsys({ amount, orderId }: RedsysProps) {
         name="Ds_MerchantParameters"
         value={redsys.merchantParameters}
       />
-      <input
-        type="hidden"
-        name="Ds_Signature"
-        value={redsys.signature}
-      />
+      <input type="hidden" name="Ds_Signature" value={redsys.signature} />
 
       <Button
         variant="outline"
@@ -71,3 +74,11 @@ export function Redsys({ amount, orderId }: RedsysProps) {
     </form>
   );
 }
+
+/*
+  Datos de prueba (entorno Redsys):
+  Tarjeta:   4548810000000003
+  Caducidad: 12/29
+  CVC:       123
+  Cliente:   ALFKI
+*/

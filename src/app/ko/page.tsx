@@ -1,56 +1,73 @@
 import Link from "next/link";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
-type Search = { [key: string]: string | string[] | undefined };
+type KoSearchParams = {
+  orderId?: string;
+  amount?: string;
+  customerId?: string;
+  Ds_SignatureVersion?: string;
+  Ds_MerchantParameters?: string;
+  Ds_Signature?: string;
+};
 
-// opcional, evita cache/prerender estático si lo prefieres
-export const revalidate = 0;
-export const dynamic = "force-dynamic";
+type KoPageProps = {
+  searchParams: Promise<KoSearchParams>;
+};
 
-export default function PaymentFailed({
-  searchParams,
-}: {
-  searchParams: Search;
-}) {
-  const amountStr = (searchParams.amount as string) ?? null;
-  const orderIdStr = (searchParams.orderId as string) ?? null;
-  const customerId = (searchParams.customerId as string) ?? null;
+export default async function KoPage({ searchParams }: KoPageProps) {
+  const {
+    orderId,
+    amount,
+    customerId,
+    // los otros parámetros los podrías guardar si quieres
+    // Ds_SignatureVersion,
+    // Ds_MerchantParameters,
+    // Ds_Signature,
+  } = await searchParams;
+
+  const amountNumber = amount ? Number(amount) / 100 : 0;
 
   return (
-    <div className="container mx-auto p-4">
-      <Card className="w-full max-w-md mx-auto">
-        <CardHeader>
-          <CardTitle className="text-2xl font-bold text-red-600">
-            Pago Fallido
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-4">
-            Lo sentimos, tu pago no se ha podido procesar correctamente.
+    <main className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="bg-white shadow-md rounded-lg p-6 max-w-lg w-full">
+        <h1 className="text-2xl font-bold text-red-600 mb-2">Pago Fallido</h1>
+        <p className="mb-4">
+          Lo sentimos, tu pago no se ha podido procesar correctamente.
+        </p>
+
+        <p className="mb-1">
+          <span className="font-semibold">Cantidad del intento de pago:</span>{" "}
+          {amountNumber.toFixed(2)} €
+        </p>
+
+        {orderId && (
+          <p className="mb-1">
+            <span className="font-semibold">ID de la cesta:</span> {orderId}
           </p>
+        )}
 
-          {amountStr && (
-            <p className="mb-2">
-              <span className="font-semibold">Cantidad del intento de pago:</span>{" "}
-              {Number(amountStr) / 100} €
-            </p>
-          )}
+        <p className="mt-4 text-sm text-gray-600">
+          Por favor, intenta realizar el pago nuevamente desde el detalle de tu
+          pedido o contacta con nuestro servicio de atención al cliente si el
+          problema persiste.
+        </p>
 
-          {orderIdStr && (
-            <p className="mb-2">
-              <span className="font-semibold">ID de la cesta:</span>{" "}
-              <Link href={`/dashboard/${customerId}/orders/${orderIdStr}`}>
-                {orderIdStr}
-              </Link>
-            </p>
-          )}
-
-          <p className="mt-4 text-sm text-gray-600">
-            Por favor, intenta realizar el pago nuevamente o contacta con nuestro
-            servicio de atención al cliente si el problema persiste.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+        {customerId && orderId && (
+          <div className="mt-6 flex gap-3">
+            <Link
+              href={`/dashboard/${customerId}/orders/${orderId}`}
+              className="inline-flex items-center justify-center rounded-md bg-green-600 px-4 py-2 text-white text-sm font-medium hover:bg-green-700"
+            >
+              Volver al pedido
+            </Link>
+            <Link
+              href={`/dashboard/${customerId}/orders`}
+              className="inline-flex items-center justify-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Ver todos los pedidos
+            </Link>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
