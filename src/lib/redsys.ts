@@ -9,10 +9,6 @@ export type RedsysCheckoutResponse = {
   url: string;
 };
 
-const REDSYS_URL =
-  process.env.NEXT_PUBLIC_REDSYS_URL ??
-  "https://sis-t.redsys.es:25443/sis/realizarPago";
-
 /**
  * Genera los datos necesarios para el formulario POST a Redsys
  * (URL, Ds_SignatureVersion, Ds_MerchantParameters, Ds_Signature).
