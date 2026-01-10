@@ -1,7 +1,5 @@
-"use client";
+// ❌ IMPORTANTE: elimina "use client" de arriba del fichero
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
 import {
   Table,
   TableBody,
@@ -10,9 +8,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { getOrder } from "@/lib/db/db";
 import Redsys from "@/components/app/Redsys";
+import { getOrder } from "@/lib/db/db";
+import { notFound } from "next/navigation";
+
+type PageProps = {
+  params: {
+    customerId: string;
+    orderId: string;
+  };
+};
 
 interface OrderDetail {
   ProductID: number;
@@ -36,51 +41,25 @@ interface Order {
   ShipPostalCode: string;
   ShipCountry: string;
   Details: OrderDetail[];
-  TotalAmount: number;
+  TotalAmount: number; // en euros
 }
 
-export default function OrderPage() {
-  const { orderId } = useParams<{ orderId: string }>();
+// 👉 Ahora es un Server Component asíncrono
+export default async function OrderPage({ params }: PageProps) {
+  const { orderId } = params;
 
-  const [order, setOrder] = useState<Order | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function fetchOrder() {
-      try {
-        const orderData = await getOrder(orderId as string);
-        setOrder(orderData);
-      } catch (err) {
-        setError("Failed to fetch order details");
-        console.error(err);
-      }
-    }
-
-    fetchOrder();
-  }, [orderId]);
-
-  if (error) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>Error</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    );
-  }
+  // Cargamos el pedido directamente en el servidor
+  const order = await getOrder(orderId);
 
   if (!order) {
-    return <div>Loading.</div>;
+    notFound();
   }
-
-  // === Cálculo del importe para Redsys ===
-  // TotalAmount viene en euros con decimales (ej: 441.00)
-  // Redsys quiere el importe en céntimos como número (ej: 44100)
-  const amountInCents = Math.round(order.TotalAmount * 100);
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Order Details</h1>
 
+      {/* Información general del pedido */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Order Information</h2>
         <Table>
@@ -113,6 +92,7 @@ export default function OrderPage() {
         </Table>
       </div>
 
+      {/* Detalle de líneas del pedido */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Order Details</h2>
         <Table>
@@ -127,7 +107,7 @@ export default function OrderPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {order.Details.map((detail) => (
+            {order.Details.map((detail: OrderDetail) => (
               <TableRow key={detail.ProductID}>
                 <TableCell>{detail.ProductID}</TableCell>
                 <TableCell>{detail.ProductName}</TableCell>
@@ -151,8 +131,9 @@ export default function OrderPage() {
           Total Amount: ${order.TotalAmount.toFixed(2)}
         </h3>
 
-        {/* Aquí llamamos a Redsys pasando céntimos como number */}
-        <Redsys amount={order.TotalAmount} orderId={order.OrderID} />
+        {/* Pasarela Redsys: le pasamos euros y OrderID como número */}
+        <Redsys customerId={params.customerId} amount={order.TotalAmount} orderId={Number(order.OrderID)} />
+
       </div>
     </div>
   );
