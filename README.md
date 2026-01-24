@@ -115,4 +115,12 @@ Sigue estos pasos para instalar y configurar el proyecto:
 7. **Video-Loom**
 https://www.loom.com/share/b2b3f819faca451892fcbfbd1b6e6aef
 
+8. **Datos de prueba**
+   Datos de prueba (entorno Redsys):
+   Tarjeta:   4548810000000003
+   Caducidad: 12/29
+   CVC:       123
+   Cliente:   ALFKI
+
+
 
