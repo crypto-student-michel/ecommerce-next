@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { associateCestaIdWithUsername } from "@/lib/db/db";
+// ❌ ELIMINADO: import { associateCestaIdWithUsername, getUser } from "@/lib/db/db";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { hashPassword } from "@/lib/utils";
 import * as z from "zod";
@@ -19,7 +19,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/components/app/AuthContext";
-import { getUser } from "@/lib/db/db";
+
+// ✅ AGREGADO: Importamos la Server Action
+import { loginAction } from "./actions";
 
 const formSchema = z.object({
   username: z.string().min(1, { message: "Username is required" }),
@@ -45,24 +47,32 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Hash the password before sending it to the server
+      // 1. Hashear password en cliente (Requisito 1.2)
       const hashedPassword = await hashPassword(values.password);
-      // Replace the plain text password with the hashed version
-      values.password = hashedPassword;
+      
+      // 2. Llamar a la Server Action en lugar de a la DB directamente
+      const result = await loginAction({
+        username: values.username,
+        password: hashedPassword,
+        cestaId: idCesta.toString() // Pasamos el ID de la cesta actual
+      });
 
-      // Function to hash the password
-     
-      const user = await getUser(values.username, values.password);
-      if (user) {
+      if (result.success && result.user) {
+        // 3. Actualizar estado y LocalStorage
         setIsLoggedIn(true);
-        setUsername(user.username);
-        setId(user.id);
-        localStorage.setItem("user", JSON.stringify(user));
-        await associateCestaIdWithUsername(idCesta.toString(), user.username);
-        router.push(`/dashboard/${user.username}`);
+        setUsername(result.user.username);
+        // setId(result.user.id); // Si tu verifyUser devuelve ID
+        
+        // Guardamos el token recibido
+        localStorage.setItem("token", result.user.token || "");
+        localStorage.setItem("user", JSON.stringify(result.user));
+        
+        // 4. Redirigir
+        router.push(`/dashboard/${result.user.username}`);
       } else {
-        setError("Invalid username or password");
+        setError(result.message || "Invalid username or password");
       }
+
     } catch (error) {
       setError(
         error instanceof Error

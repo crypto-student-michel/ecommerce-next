@@ -1,48 +1,83 @@
-import OkClient from "./ok-client";
+"use client";
 
-type SearchParams = Record<string, string | string[] | undefined>;
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { confirmPaymentAction } from "./actions";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
-function pick(sp: SearchParams, key: string) {
-  const v = sp[key];
-  if (Array.isArray(v)) return v[0] ?? "";
-  return v ?? "";
-}
+// 1. Creamos un componente interno que maneja la lógica de la URL
+function PaymentSuccessContent() {
+  const searchParams = useSearchParams();
+  const orderIdParam = searchParams.get("orderId");
+  
+  const [status, setStatus] = useState<"processing" | "success" | "error">("processing");
 
-function normalizeB64FromQuery(v: string) {
-  // en query, '+' suele venir como espacio
-  return (v || "").replace(/ /g, "+").trim();
-}
+  useEffect(() => {
+    async function confirmPayment() {
+      if (!orderIdParam) {
+        setStatus("error");
+        return;
+      }
 
-export default function OkPage({ searchParams }: { searchParams: SearchParams }) {
-  const orderId = pick(searchParams, "orderId");
-  const customerId = pick(searchParams, "customerId");
-  const amount = pick(searchParams, "amount");
+      const orderId = parseInt(orderIdParam);
+      const result = await confirmPaymentAction(orderId);
 
-  // Redsys
-  const Ds_SignatureVersion = pick(searchParams, "Ds_SignatureVersion");
-  const Ds_MerchantParameters = normalizeB64FromQuery(pick(searchParams, "Ds_MerchantParameters"));
-  const Ds_Signature = normalizeB64FromQuery(pick(searchParams, "Ds_Signature"));
+      if (result.success) {
+        setStatus("success");
+      } else {
+        setStatus("error");
+      }
+    }
 
-  if (!orderId || !customerId) {
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold text-red-600">Faltan parámetros</h1>
-        <p className="mt-2 text-gray-700">
-          No llegaron <b>orderId</b> o <b>customerId</b> en la URL.
-        </p>
-      </div>
-    );
-  }
+    confirmPayment();
+  }, [orderIdParam]);
 
   return (
-    <OkClient
-      orderId={orderId}
-      customerId={customerId}
-      amount={amount}
-      Ds_SignatureVersion={Ds_SignatureVersion}
-      Ds_MerchantParameters={Ds_MerchantParameters}
-      Ds_Signature={Ds_Signature}
-      redirectSeconds={3}
-    />
+    <Card className="w-full max-w-md text-center">
+      <CardHeader>
+        <div className="flex justify-center mb-4 text-4xl">
+          {status === "processing" && "⏳"}
+          {status === "success" && "✅"}
+          {status === "error" && "⚠️"}
+        </div>
+        <CardTitle className="text-2xl">
+          {status === "processing" && "Procesando pago..."}
+          {status === "success" && "¡Pago Confirmado!"}
+          {status === "error" && "Error al registrar el pago"}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {status === "success" && (
+          <>
+            <p className="text-gray-600 mb-6">
+              Tu pedido #{orderIdParam} ha sido pagado y registrado correctamente en el sistema.
+            </p>
+            <Link href={`/dashboard/ALFKI/orders`}> 
+              <Button className="w-full">Volver a mis Pedidos</Button>
+            </Link>
+          </>
+        )}
+        
+        {status === "error" && (
+          <p className="text-red-500">
+            Hubo un problema confirmando el pedido en la base de datos, aunque el banco haya aceptado el pago. Contacta con soporte.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// 2. El componente principal envuelve al contenido en Suspense
+// Esto le dice a Next.js: "Espera a tener los datos del cliente antes de renderizar esto"
+export default function PaymentSuccessPage() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+      <Suspense fallback={<div className="text-lg">Cargando confirmación...</div>}>
+        <PaymentSuccessContent />
+      </Suspense>
+    </div>
   );
 }

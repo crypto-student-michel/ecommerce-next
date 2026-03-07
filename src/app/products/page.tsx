@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { getAllProducts } from "@/lib/db/db";
+// ✅ CORRECCIÓN: Usamos getProducts que es como se llama en tu db.ts
+import { getProducts } from "@/lib/db/db";
 
 export const revalidate = 0;
 
 export default async function ProductsPage() {
-  const products = await getAllProducts();
+  // ✅ CORRECCIÓN: Llamamos a getProducts()
+  const products = await getProducts();
 
   return (
     <div className="container mx-auto p-4">

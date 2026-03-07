@@ -15,10 +15,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/app/AuthContext";
-import { cesta } from "@/lib/db/db";
+// ❌ ELIMINADO: import { cesta } from "@/lib/db/db";
+// ✅ AGREGADO: Importamos la Server Action
+import { addToCestaAction } from "./actions";
 import Link from "next/link";
 
-// la cantidad mínima ahora es 1 (coincide con el mensaje)
 const formSchema = z.object({
   cantidad: z.number().min(1, { message: "La cantidad debe ser al menos 1" }),
 });
@@ -37,7 +38,6 @@ export default function Cantidad({ productoId, cantidad }: CantidadProps) {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      // si no viene cantidad, empezamos en 1
       cantidad: cantidad ?? 1,
     },
   });
@@ -47,10 +47,12 @@ export default function Cantidad({ productoId, cantidad }: CantidadProps) {
     setSuccess(false);
     setError(false);
     try {
-      await cesta(
-        productoId.toString(),
+      // ✅ CORREGIDO: Usamos la acción addToCestaAction
+      // Aseguramos el orden de argumentos: idCesta, username, productId, cantidad
+      await addToCestaAction(
         idCesta.toString(),
         username,
+        productoId, 
         values.cantidad
       );
       setSuccess(true);
@@ -94,16 +96,10 @@ export default function Cantidad({ productoId, cantidad }: CantidadProps) {
         <div className="mt-2 text-green-500">
           <p>Producto añadido a la cesta correctamente</p>
           <div className="mt-2">
-            <Link
-              href="/products"
-              className="text-blue-500 hover:underline mr-4"
-            >
+            <Link href="/products" className="text-blue-500 hover:underline mr-4">
               Seguir comprando
             </Link>
-            <Link
-              href={`/cesta/${idCesta}`}
-              className="text-blue-500 hover:underline"
-            >
+            <Link href={`/cesta/${idCesta}`} className="text-blue-500 hover:underline">
               Ver cesta
             </Link>
           </div>

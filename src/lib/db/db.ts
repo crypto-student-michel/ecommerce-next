@@ -1,509 +1,396 @@
-"use server";
+
+import "server-only";
 
 import sqlite3 from "sqlite3";
-import { open, type Database } from "sqlite";
+import { open } from "sqlite";
 import path from "node:path";
 import fs from "node:fs";
-import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import jwt, { JwtPayload } from "jsonwebtoken";
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Tipos
-// ───────────────────────────────────────────────────────────────────────────────
-export interface Product {
-  ProductID: number;
-  ProductName: string;
-  UnitPrice: number;
-  UnitsInStock: number;
-}
+type TokenPayload = JwtPayload & {
+  username: string;
+};
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Conexión SQLite (singleton)
-// ───────────────────────────────────────────────────────────────────────────────
-let db: Database<sqlite3.Database, sqlite3.Statement> | null = null;
+const JWT_SECRET = process.env.JWT_SECRET || "mi_secreto";
+const DB_FILE = process.env.SQLITE_DB_PATH || "./northwind.db";
 
-/** Resuelve y valida la ruta del Northwind.db */
-function resolveDbPath(): string {
-  const fromEnv = process.env.NORTHWIND_DB_PATH
-    ? path.resolve(process.cwd(), process.env.NORTHWIND_DB_PATH)
-    : null;
+async function getDb() {
+  const dbPath = path.isAbsolute(DB_FILE) ? DB_FILE : path.join(process.cwd(), DB_FILE);
 
-  const candidates = [
-    fromEnv,
-    path.resolve(process.cwd(), "northwind", "northwind.db"), // recomendado
-    path.resolve(process.cwd(), "prisma", "northwind.db"),
-    path.resolve(process.cwd(), "northwind.db"),
-  ].filter(Boolean) as string[];
-
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  throw new Error(
-    "No encuentro el fichero de base de datos Northwind.\nProbadas rutas:\n" +
-      candidates.join("\n")
-  );
-}
-
-/** Garantiza tabla 'cesta' */
-async function ensureCestaTable(dbi: Database<sqlite3.Database, sqlite3.Statement>) {
-  await dbi.exec(`
-    CREATE TABLE IF NOT EXISTS cesta (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      productId INTEGER NOT NULL,
-      cestaId TEXT NOT NULL,
-      username TEXT NULL,
-      cantidad INTEGER NOT NULL,
-      UNIQUE(productId, cestaId)
-    );
-  `);
-}
-
-/** Garantiza tabla 'cobro' */
-async function ensureCobroTable(dbi: Database<sqlite3.Database, sqlite3.Statement>) {
-  await dbi.exec(`
-    CREATE TABLE IF NOT EXISTS cobro (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      orderId INTEGER NOT NULL,
-      customerId TEXT NOT NULL,
-      amount REAL NOT NULL,
-      authorizationCode TEXT NOT NULL UNIQUE,
-      fecha TEXT NOT NULL
-    );
-  `);
-}
-
-export async function getDb() {
-  if (db) return db;
-
-  const dbPath = resolveDbPath();
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`SQLite file not found at: ${dbPath}`);
-  }
-
-  db = await open({
+  const db = await open({
     filename: dbPath,
     driver: sqlite3.Database,
   });
 
-  await db.exec("PRAGMA foreign_keys = ON;");
-
-  // Comprobación de Northwind
-  const cust = await db.get(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='Customers';"
-  );
-  if (!cust) {
-    throw new Error(
-      `La tabla 'Customers' no existe en ${dbPath}. Estás apuntando al .db equivocado.`
-    );
-  }
-
-  // Usuarios (para login simple)
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      acceptPolicy INTEGER NOT NULL DEFAULT 0,
-      acceptMarketing INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  await ensureCestaTable(db);
-  await ensureCobroTable(db);
   return db;
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Productos
-// ───────────────────────────────────────────────────────────────────────────────
-export async function getAllProducts(): Promise<Product[]> {
-  const db = await getDb();
-  return db.all<Product[]>(`
-    SELECT ProductID, ProductName, UnitPrice, UnitsInStock
-    FROM Products
-    ORDER BY ProductID
-  `);
-}
-
-/** Detalle de producto por id */
-export async function getProduct(id: number): Promise<Product | null> {
-  const db = await getDb();
-  const row = await db.get<Product>(
-    `SELECT ProductID, ProductName, UnitPrice, UnitsInStock
-     FROM Products
-     WHERE ProductID = ?
-     LIMIT 1`,
-    [id]
-  );
-  return row ?? null;
-}
-
-export const getProductById = getProduct;
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Customers / Users
-// ───────────────────────────────────────────────────────────────────────────────
-async function ensureCustomer(username: string) {
-  const db = await getDb();
-  const found = await db.get(
-    "SELECT CustomerID FROM Customers WHERE CustomerID = ?",
-    [username]
-  );
-  if (!found) {
-    await db.run(
-      `INSERT OR IGNORE INTO Customers (CustomerID, CompanyName, ContactName)
-       VALUES (?, ?, ?)`,
-      [username, username, username]
-    );
+export async function verifyToken(token: string) {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as TokenPayload;
+    return payload;
+  } catch (error) {
+    console.error("Error verifying token:", error);
+    return null;
   }
 }
 
+// --------------------------------------------------------
+// USERS / AUTH
+// --------------------------------------------------------
+
 export async function insertUser(
-  username: string,
-  password: string, // ya hasheado
-  acceptPolicy: boolean,
+  username: string, 
+  password: string, 
+  acceptPolicy: boolean, 
   acceptMarketing: boolean
 ) {
   const db = await getDb();
+  const hashedPassword = await bcrypt.hash(password, 10);
 
-  const existingUser = await db.get(
-    "SELECT 1 FROM users WHERE username = ?",
+  await db.run(
+    `INSERT INTO users (username, password, acceptPolicy, acceptMarketing) VALUES (?, ?, ?, ?)`,
+    [username, hashedPassword, acceptPolicy, acceptMarketing]
+  );
+
+  return { ok: true };
+}
+
+export async function verifyUser(username: string, password: string) {
+  const db = await getDb();
+  const user = await db.get<{ username: string; password: string }>(
+    `SELECT username, password FROM users WHERE username = ?`,
     [username]
   );
-  if (existingUser) {
-    throw new Error("Username already exists");
-  }
 
-  await ensureCustomer(username);
+  if (!user) return null;
 
-  const res = await db.run(
-    `INSERT INTO users (username, password, acceptPolicy, acceptMarketing)
-     VALUES (?, ?, ?, ?)`,
-    [username, password, acceptPolicy ? 1 : 0, acceptMarketing ? 1 : 0]
-  );
+  const ok = await bcrypt.compare(password, user.password);
+  if (!ok) return null;
 
-  return res.lastID;
+  const token = jwt.sign({ username: user.username }, JWT_SECRET, { expiresIn: "31d" });
+  return { username: user.username, token };
 }
 
-export async function getUser(username: string, password: string) {
+export async function setPassword(username: string, newPassword: string) {
   const db = await getDb();
-  const user = await db.get(
-    "SELECT id, username FROM users WHERE username = ? AND password = ?",
-    [username, password]
-  );
-  if (!user) {
-    throw new Error("Invalid username or password");
-  }
-
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error("JWT_SECRET is not defined in environment variables");
-  }
-  const token = jwt.sign(
-    { id: (user as any).id, username: (user as any).username },
-    secret,
-    { expiresIn: "1h" }
-  );
-  (user as any).token = token;
-  return user;
-}
-
-export async function getCustomer(customerId: string) {
-  const db = await getDb();
-  return db.get("SELECT * FROM Customers WHERE CustomerID = ?", [customerId]);
-}
-
-export async function saveCustomer(customerId: string, values: any) {
-  const db = await getDb();
-  const {
-    CompanyName, ContactName, ContactTitle, Address, City,
-    Region, PostalCode, Country, Phone, Fax,
-  } = values;
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
 
   await db.run(
-    `
-    UPDATE Customers SET 
-      CompanyName = ?, ContactName = ?, ContactTitle = ?, Address = ?, City = ?,
-      Region = ?, PostalCode = ?, Country = ?, Phone = ?, Fax = ?
-    WHERE CustomerID = ?
-  `,
-    [
-      CompanyName, ContactName, ContactTitle, Address, City,
-      Region, PostalCode, Country, Phone, Fax, customerId,
-    ]
+    `UPDATE users SET password = ? WHERE username = ?`,
+    [hashedPassword, username]
   );
+
+  return { ok: true };
 }
 
-export async function getCustomerOrders(customerId: string) {
+export async function associateCestaIdWithUsername(cestaId: string, username: string) {
   const db = await getDb();
-  return db.all(
-    `
-    SELECT
-      OrderID,
-      OrderDate,
-      (SELECT SUM(UnitPrice * Quantity)
-         FROM "Order Details"
-        WHERE OrderID = Orders.OrderID) AS TotalImporte,
-      (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
-         FROM cobro
-        WHERE orderId = Orders.OrderID) AS Cobrado
-    FROM Orders
-    WHERE CustomerID = ?
-    ORDER BY OrderDate DESC
-  `,
-    [customerId]
-  );
-}
-
-export async function getOrder(orderId: string) {
-  const db = await getDb();
-  const order = await db.get("SELECT * FROM Orders WHERE OrderID = ?", [
-    orderId,
-  ]);
-  const details = await db.all(
-    `
-    SELECT od.*, p.ProductName
-    FROM "Order Details" od
-    JOIN Products p ON od.ProductID = p.ProductID
-    WHERE od.OrderID = ?
-  `,
-    [orderId]
-  );
-  const totalAmount = (details as any[]).reduce(
-    (sum: number, d: any) => sum + d.UnitPrice * d.Quantity * (1 - d.Discount),
-    0
-  );
-  (order as any).Details = details;
-  (order as any).TotalAmount = parseFloat(totalAmount.toFixed(2));
-  return order;
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Cesta
-// ───────────────────────────────────────────────────────────────────────────────
-
-export async function cesta(
-  productId: string,
-  cestaId: string,
-  username: string | null,
-  cantidad: number
-) {
-  const db = await getDb();
-  await ensureCestaTable(db);
-
-  const productIdNumber = Number(productId);
-  if (!Number.isFinite(productIdNumber)) {
-    throw new Error(`cesta(): productId inválido: ${productId}`);
-  }
-
-  const cantidadNumber = Number(cantidad);
-  if (!Number.isFinite(cantidadNumber) || cantidadNumber < 0) {
-    throw new Error(`cesta(): cantidad inválida: ${cantidad}`);
-  }
 
   await db.run(
-    `
-    INSERT INTO cesta (productId, cestaId, cantidad, username)
-    VALUES (:productId, :cestaId, :cantidad, :username)
-    ON CONFLICT(productId, cestaId) DO UPDATE SET cantidad = :cantidad
-  `,
-    {
-      ":productId": productIdNumber,
-      ":cestaId": cestaId,
-      ":cantidad": cantidadNumber,
-      ":username": username ?? null,
-    }
-  );
-
-  // Si la cantidad queda a 0, eliminamos la fila
-  await db.run(`DELETE FROM cesta WHERE cestaId = :cestaId AND cantidad = 0`, {
-    ":cestaId": cestaId,
-  });
-}
-
-export async function getCesta(idCesta: string) {
-  const db = await getDb();
-  await ensureCestaTable(db);
-  return db.all(
-    `
-    SELECT c.productId AS ProductID,
-           p.ProductName AS ProductName,
-           c.cantidad
-    FROM cesta c
-    JOIN Products p ON c.productId = p.ProductID
-    WHERE c.cestaId = ?
-  `,
-    [idCesta]
-  );
-}
-
-/** Asociar cesta temporal a usuario tras login */
-export async function associateCestaIdWithUsername(
-  cestaId: string,
-  username: string
-) {
-  const db = await getDb();
-  await ensureCestaTable(db);
-
-  const rows = await db.all(
-    `
-    SELECT productId, MAX(cantidad) AS cantidad
-    FROM cesta
-    WHERE username = ? OR cestaId = ?
-    GROUP BY productId
-  `,
+    `UPDATE cesta SET username = ? WHERE cestaId = ?`,
     [username, cestaId]
   );
 
-  await db.run("DELETE FROM cesta WHERE username = ? OR cestaId = ?", [
-    username,
-    cestaId,
-  ]);
-
-  for (const r of rows as any[]) {
-    const productIdNumber = Number(r.productId);
-    const cantidadNumber = Number(r.cantidad);
-
-    if (!Number.isFinite(productIdNumber)) {
-      console.warn(
-        "associateCestaIdWithUsername: fila con productId inválido, se omite:",
-        r
-      );
-      continue;
-    }
-
-    if (!Number.isFinite(cantidadNumber) || cantidadNumber <= 0) {
-      continue;
-    }
-
-    await db.run(
-      `
-      INSERT INTO cesta (productId, cestaId, username, cantidad)
-      VALUES (?, ?, ?, ?)
-    `,
-      [productIdNumber, cestaId, username, cantidadNumber]
-    );
-  }
+  return { ok: true };
 }
 
-/** Crear pedido desde la cesta del usuario */
-export async function createOrder(username: string, idCesta: string) {
+// --------------------------------------------------------
+// PRODUCTS
+// --------------------------------------------------------
+
+export async function getProducts() {
   const db = await getDb();
-  await ensureCestaTable(db);
+  const rows = await db.all(
+    `SELECT ProductID, ProductName, UnitPrice, UnitsInStock FROM Products ORDER BY ProductID`
+  );
+  return rows;
+}
+
+export async function getProduct(productId: number) {
+  const db = await getDb();
+  const row = await db.get(
+    `SELECT ProductID, ProductName, UnitPrice, UnitsInStock FROM Products WHERE ProductID = ?`,
+    [productId]
+  );
+  return row;
+}
+
+// --------------------------------------------------------
+// CESTA
+// --------------------------------------------------------
+
+export async function getCesta(cestaId: string) {
+  const db = await getDb();
+  
+  const items = await db.all(
+    `SELECT 
+        c.id, 
+        c.productId, 
+        c.cestaId, 
+        c.username, 
+        c.cantidad,
+        p.ProductName, 
+        p.UnitPrice
+     FROM cesta c
+     JOIN Products p ON c.productId = p.ProductID
+     WHERE c.cestaId = ?
+     ORDER BY c.id`,
+    [cestaId]
+  );
+  
+  return items;
+}
+
+export async function addToCesta(cestaId: string, username: string, productId: number, cantidad: number) {
+  const db = await getDb();
+
+  const existing = await db.get<{ id: number; cantidad: number }>(
+    `SELECT id, cantidad FROM cesta WHERE cestaId = ? AND productId = ?`,
+    [cestaId, productId]
+  );
+
+  if (existing) {
+    const newQty = existing.cantidad + cantidad;
+    await db.run(
+      `UPDATE cesta SET cantidad = ? WHERE id = ?`,
+      [newQty, existing.id]
+    );
+    return { ok: true, action: "updated", cantidad: newQty };
+  }
+
+  await db.run(
+    `INSERT INTO cesta (productId, cestaId, username, cantidad) VALUES (?, ?, ?, ?)`,
+    [productId, cestaId, username, cantidad]
+  );
+
+  return { ok: true, action: "inserted" };
+}
+
+export async function setCantidadCesta(cestaId: string, productId: number, cantidad: number) {
+  const db = await getDb();
+
+  if (cantidad <= 0) {
+    await db.run(
+      `DELETE FROM cesta WHERE cestaId = ? AND productId = ?`,
+      [cestaId, productId]
+    );
+    return { ok: true, action: "deleted" };
+  }
+
+  const existing = await db.get<{ id: number }>(
+    `SELECT id FROM cesta WHERE cestaId = ? AND productId = ?`,
+    [cestaId, productId]
+  );
+
+  if (!existing) {
+    await db.run(
+      `INSERT INTO cesta (productId, cestaId, username, cantidad) VALUES (?, ?, ?, ?)`,
+      [productId, cestaId, "", cantidad]
+    );
+    return { ok: true, action: "inserted", cantidad };
+  }
+
+  await db.run(
+    `UPDATE cesta SET cantidad = ? WHERE cestaId = ? AND productId = ?`,
+    [cantidad, cestaId, productId]
+  );
+
+  return { ok: true, action: "updated", cantidad };
+}
+
+export async function deleteItemCesta(cestaId: string, productId: number) {
+  const db = await getDb();
+  await db.run(
+    `DELETE FROM cesta WHERE cestaId = ? AND productId = ?`,
+    [cestaId, productId]
+  );
+  return { ok: true };
+}
+
+// --------------------------------------------------------
+// ORDERS (SOLUCIÓN DEFINITIVA)
+// --------------------------------------------------------
+
+export async function createOrder(customerId: string, totalAmount: number) {
+  const db = await getDb();
+
+  // 1. Obtenemos los productos AGRUPADOS por ID
+  // ✅ CORRECCIÓN CLAVE: Usamos GROUP BY y SUM(c.cantidad)
+  // Esto fusiona si tienes el mismo producto varias veces en la cesta,
+  // evitando el error "UNIQUE constraint failed"
+  const cartItems = await db.all(
+    `SELECT c.productId, SUM(c.cantidad) as cantidad, MAX(p.UnitPrice) as UnitPrice
+     FROM cesta c
+     JOIN Products p ON c.productId = p.ProductID
+     WHERE c.username = ?
+     GROUP BY c.productId`,
+    [customerId]
+  );
+
+  if (!cartItems || cartItems.length === 0) {
+    throw new Error("La cesta está vacía");
+  }
+
+  // --- TRANSACCIÓN ---
+  // Asegura que se guarda TODO (cabecera + detalles) o NADA.
+  await db.run("BEGIN TRANSACTION");
 
   try {
-    await db.run("BEGIN TRANSACTION");
-
-    // 1) Aseguramos el customer
-    await ensureCustomer(username);
-
-    const customer = await db.get<{ CustomerID: string }>(
-      "SELECT CustomerID FROM Customers WHERE CustomerID = ?",
-      [username]
-    );
-    if (!customer) {
-      throw new Error(`createOrder: customer no encontrado para ${username}`);
-    }
-
-    // 2) Creamos el pedido
-    const orderDate = new Date().toISOString();
+    // 2. Crear cabecera del pedido
     const result = await db.run(
-      `INSERT INTO Orders (CustomerID, OrderDate) VALUES (?, ?)`,
-      [customer.CustomerID, orderDate]
+      `INSERT INTO Orders (CustomerID, OrderDate) VALUES (?, date('now'))`,
+      [customerId]
     );
-    const orderId = result.lastID as number | undefined;
-    if (!orderId) {
-      throw new Error("createOrder: no se pudo obtener lastID de Orders");
-    }
+    
+    const newOrderId = result.lastID;
+    console.log(`✅ Pedido ${newOrderId} iniciado. Insertando detalles...`);
 
-    // 3) Obtenemos los items de la cesta (TIPADO EXPLÍCITO)
-    const cestaItems: { ProductID: number; cantidad: number; UnitPrice: number }[] =
-      await db.all(
-        `
-        SELECT c.productId AS ProductID, c.cantidad, p.UnitPrice
-        FROM cesta c
-        JOIN Products p ON c.productId = p.ProductID
-        WHERE c.cestaId = ?
-      `,
-        [idCesta]
-      );
+    // 3. Insertar detalles uno a uno
+    for (const item of cartItems) {
+      const price = item.UnitPrice || 0;
+      const qty = item.cantidad || 1;
 
-    if (!cestaItems || cestaItems.length === 0) {
-      throw new Error(`createOrder: cesta vacía para idCesta=${idCesta}`);
-    }
-
-    // 4) Insertamos las líneas de detalle
-    for (const item of cestaItems) {
+      // Usamos comillas en "Order Details" porque la tabla tiene un espacio
       await db.run(
-        `
-        INSERT INTO "Order Details" (OrderID, ProductID, UnitPrice, Quantity, Discount)
-        VALUES (?, ?, ?, ?, 0)
-      `,
-        [orderId, item.ProductID, item.UnitPrice, item.cantidad]
+        `INSERT INTO "Order Details" (OrderID, ProductID, UnitPrice, Quantity, Discount) 
+         VALUES (?, ?, ?, ?, ?)`,
+        [newOrderId, item.productId, price, qty, 0]
       );
     }
 
-    // 5) Calculamos el total del pedido (TIPADO EXPLÍCITO)
-    const totalRow = await db.get<{ TotalAmount: number }>(
-      `
-      SELECT SUM(UnitPrice * Quantity) as TotalAmount
-      FROM "Order Details"
-      WHERE OrderID = ?
-    `,
-      [orderId]
-    );
-    const totalAmount = totalRow?.TotalAmount ?? 0;
+    // 4. Vaciar cesta del usuario
+    await db.run(`DELETE FROM cesta WHERE username = ?`, [customerId]);
 
-    // 6) Limpiamos la cesta
-    await db.run(`DELETE FROM cesta WHERE cestaId = ?`, [idCesta]);
-
+    // Confirmar cambios
     await db.run("COMMIT");
+    console.log(`✅ Pedido ${newOrderId} creado con éxito.`);
 
-    return { orderId, totalAmount };
+    return { orderId: newOrderId, totalAmount };
+
   } catch (error) {
+    // Si algo falla, deshacemos todo para no dejar pedidos corruptos ($0.00)
     await db.run("ROLLBACK");
-    console.error("Error creating order:", error);
+    console.error("❌ ERROR CRÍTICO EN CREATE ORDER:", error);
     throw error;
   }
 }
 
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Cobro
-// ───────────────────────────────────────────────────────────────────────────────
-export async function saveCobro(
-  customerId: string,
-  orderId: number,
-  amount: number,
-  authorizationCode: string
-) {
+export async function getCustomerOrders(customerId: string) {
   const db = await getDb();
-  await ensureCobroTable(db);
-  const fecha = new Date().toISOString();
-  const res = await db.run(
-    `INSERT INTO cobro (orderId, customerId, amount, fecha, authorizationCode)
-     VALUES (?, ?, ?, ?, ?)`,
-    [orderId, customerId, amount, fecha, authorizationCode]
+  
+  const rows = await db.all(
+    `SELECT 
+        o.OrderID, 
+        o.OrderDate, 
+        o.RequiredDate, 
+        o.ShippedDate,
+        o.Paid,  -- ✅ AÑADIDO: Leemos el estado de pago
+        SUM(od.UnitPrice * od.Quantity * (1 - od.Discount)) as TotalAmount
+     FROM Orders o
+     LEFT JOIN "Order Details" od ON o.OrderID = od.OrderID
+     WHERE o.CustomerID = ?
+     GROUP BY o.OrderID
+     ORDER BY o.OrderID DESC`,
+    [customerId]
   );
-  return res.lastID;
+  
+  return rows;
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Cambio de contraseña
-// ───────────────────────────────────────────────────────────────────────────────
-export async function setPassword(
-  customerId: string,
-  currentPassword: string,
-  newPassword: string
-) {
+export async function getOrder(orderId: number) {
   const db = await getDb();
-  const user = await db.get(
-    "SELECT * FROM users WHERE username = ? AND password = ?",
-    [customerId, currentPassword]
+  const order = await db.get(
+    `SELECT OrderID, CustomerID, OrderDate, RequiredDate, ShippedDate
+     FROM Orders
+     WHERE OrderID = ?`,
+    [orderId]
   );
-  if (!user) throw new Error("Invalid username or password");
-  await db.run("UPDATE users SET password = ? WHERE username = ?", [
-    newPassword,
-    customerId,
-  ]);
+
+  const details = await db.all(
+    `SELECT od.ProductID, p.ProductName, od.UnitPrice, od.Quantity, od.Discount
+     FROM "Order Details" od
+     JOIN Products p ON p.ProductID = od.ProductID
+     WHERE od.OrderID = ?`,
+    [orderId]
+  );
+
+  return { order, details };
+}
+
+// --------------------------------------------------------
+// CUSTOMER
+// --------------------------------------------------------
+
+export async function getCustomer(customerId: string) {
+  const db = await getDb();
+  const customer = await db.get(
+    `SELECT CustomerID, CompanyName, ContactName, ContactTitle, Address, City, Region, PostalCode, Country, Phone
+     FROM Customers
+     WHERE CustomerID = ?`,
+    [customerId]
+  );
+  return customer;
+}
+
+export async function saveCustomer(customerId: string, data: any) {
+  const db = await getDb();
+
+  await db.run(
+    `UPDATE Customers
+     SET CompanyName = ?, ContactName = ?, ContactTitle = ?, Address = ?, City = ?, Region = ?, PostalCode = ?, Country = ?, Phone = ?
+     WHERE CustomerID = ?`,
+    [
+      data.CompanyName,
+      data.ContactName,
+      data.ContactTitle,
+      data.Address,
+      data.City,
+      data.Region,
+      data.PostalCode,
+      data.Country,
+      data.Phone,
+      customerId,
+    ]
+  );
+
+  return { ok: true };
+}
+// nueva función para marcar el pedido como pagado y actualizar la función que obtiene los pedidos para que lea ese dato.
+// export async function markOrderAsPaid(orderId: number) {
+//   const db = await getDb();
+//   await db.run(
+//     `UPDATE Orders SET Paid = 1 WHERE OrderID = ?`,
+//     [orderId]
+//   );
+//   return { ok: true };
+// }
+
+export async function markOrderAsPaid(orderId: number) {
+  const db = await getDb();
+
+  // 1. Obtenemos los productos que había en ese pedido
+  const items = await db.all(
+    `SELECT ProductID, Quantity FROM "Order Details" WHERE OrderID = ?`,
+    [orderId]
+  );
+
+  // 2. Recorremos cada producto y RESTAMOS la cantidad al stock
+  for (const item of items) {
+    await db.run(
+      `UPDATE Products 
+       SET UnitsInStock = UnitsInStock - ? 
+       WHERE ProductID = ?`,
+      [item.Quantity, item.ProductID]
+    );
+  }
+
+  // 3. Finalmente marcamos el pedido como pagado
+  await db.run(
+    `UPDATE Orders SET Paid = 1 WHERE OrderID = ?`,
+    [orderId]
+  );
+
+  return { ok: true };
 }

@@ -3,13 +3,10 @@
 import React, { createContext, useState, useContext, useCallback, useEffect } from "react";
 import { verifyToken } from "@/lib/serverUtils";
 import { useRouter } from "next/navigation";
-import { associateCestaIdWithUsername } from "@/lib/db/db";
+// ❌ ELIMINADO: import { associateCestaIdWithUsername } from "@/lib/db/db";
+// ✅ AGREGADO: Usamos la Server Action
+import { associateCestaAction } from "./actions";
 
-
-
-/**
- * Represents the shape of the authentication context.
- */
 export interface AuthContextType {
   isLoggedIn: boolean;
   setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean>>;
@@ -23,16 +20,8 @@ export interface AuthContextType {
   loading: boolean;
 }
 
-/**
- * Creates the authentication context with undefined as the default value.
- */
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/**
- * Custom hook to use the authentication context.
- * @throws {Error} If used outside of an AuthProvider.
- * @returns {AuthContextType} The authentication context.
- */
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -41,11 +30,6 @@ export const useAuth = () => {
   return context;
 };
 
-/**
- * AuthProvider component that manages the authentication state.
- * @param {Object} props - The component props.
- * @param {React.ReactNode} props.children - The child components.
- */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState("");
@@ -54,9 +38,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  /**
-   * Logs out the user and resets the authentication state.
-   */
   const logout = useCallback(() => {
     setIsLoggedIn(false);
     setUsername("");
@@ -73,14 +54,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log("storedUser", storedUser);
     if (storedUser) {
       const user = JSON.parse(storedUser);
-      // Verify the token with the server
       verifyToken(user.token).then(async (result: { valid: boolean; payload?: any }) => {
         console.log("result", result);
         if (result.valid) {
           setIsLoggedIn(true);
           setUsername(user.username);
           setId(user.id);
-          await associateCestaIdWithUsername(idCesta.toString(), user.username);
+          // ✅ CORREGIDO: Llamada a la Server Action
+          await associateCestaAction(idCesta.toString(), user.username);
           setLoading(false);
         } else {
           logout();
@@ -90,8 +71,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       setLoading(false);
     }
-    // Verify the token with the server
-   
   }, [logout, idCesta]);
 
   return (

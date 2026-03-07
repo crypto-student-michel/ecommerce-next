@@ -2,16 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getCustomer } from "@/lib/db/db";
+// ❌ ELIMINADO: import { getCustomer, saveCustomer } from "@/lib/db/db";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { saveCustomer } from "@/lib/db/db";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+
+// ✅ IMPORTAMOS LAS ACCIONES SEGURAS
+import { getCustomerForEditAction, updateCustomerAction } from "./actions";
 
 const formSchema = z.object({
   CompanyName: z.string().min(1, "Company Name is required"),
@@ -27,10 +28,13 @@ const formSchema = z.object({
 });
 
 export default function EditCustomerProfile() {
-  const { customerId } = useParams();
+  const params = useParams();
+  // Aseguramos que customerId es string
+  const customerId = Array.isArray(params.customerId) ? params.customerId[0] : params.customerId;
+  
   const router = useRouter();
   const [customer, setCustomer] = useState(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
   const form = useForm({
@@ -51,10 +55,18 @@ export default function EditCustomerProfile() {
 
   useEffect(() => {
     async function fetchCustomer() {
+      if (!customerId) return;
+      
       try {
-        const customerData = await getCustomer(customerId as string);
-        setCustomer(customerData);
-        form.reset(customerData);
+        // ✅ Usamos la acción del servidor
+        const result = await getCustomerForEditAction(customerId);
+        
+        if (result.success && result.customer) {
+          setCustomer(result.customer as any);
+          form.reset(result.customer as any);
+        } else {
+          setError(result.error || "Failed to fetch customer data");
+        }
       } catch (err) {
         setError("Failed to fetch customer data");
         console.error(err);
@@ -64,14 +76,21 @@ export default function EditCustomerProfile() {
     fetchCustomer();
   }, [customerId, form]);
 
-  async function onSubmit(values) {
-    try {
-      await saveCustomer(customerId as string, values);
-      setSuccess(true);
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!customerId) return;
 
-      setTimeout(() => {
-        router.push(`/dashboard/${customerId}/profile`);
-      }, 4000);
+    try {
+      // ✅ Usamos la acción del servidor para guardar
+      const result = await updateCustomerAction(customerId, values);
+
+      if (result.success) {
+        setSuccess(true);
+        setTimeout(() => {
+          router.push(`/dashboard/${customerId}/profile`);
+        }, 2000); // Reduje el tiempo a 2s para que sea más ágil
+      } else {
+        setError(result.error || "Failed to save changes");
+      }
     } catch (err) {
       setError("Failed to save customer data");
       console.error(err);
@@ -88,59 +107,76 @@ export default function EditCustomerProfile() {
   }
 
   if (!customer) {
-    return <div>Loading...</div>;
+    return <div className="p-8">Loading profile data...</div>;
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-8 max-w-2xl mx-auto border rounded bg-white shadow">
       <h1 className="text-2xl font-bold">Edit Customer Profile</h1>
       {success && (
-        <Alert variant="success">
+        <Alert className="bg-green-100 border-green-500 text-green-700">
           <AlertTitle>Success</AlertTitle>
-          <AlertDescription>Customer data updated successfully. Redirecting...</AlertDescription>
+          <AlertDescription>Datos actualizados correctamente. Redirigiendo...</AlertDescription>
         </Alert>
       )}
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <FormField
-            control={form.control}
-            name="CompanyName"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Company Name</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="ContactName"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Contact Name</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="ContactTitle"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Contact Title</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="CompanyName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Company Name</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="ContactName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Contact Name</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+             <FormField
+              control={form.control}
+              name="ContactTitle"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Contact Title</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="Phone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
           <FormField
             control={form.control}
             name="Address"
@@ -148,91 +184,87 @@ export default function EditCustomerProfile() {
               <FormItem>
                 <FormLabel>Address</FormLabel>
                 <FormControl>
-                  <Input {...field} />
+                  <Input {...field} value={field.value || ""} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name="City"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>City</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="Region"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Region</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="PostalCode"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Postal Code</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="Country"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Country</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="Phone"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Phone</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="Fax"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Fax</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <Button type="submit">Save Changes</Button>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <FormField
+              control={form.control}
+              name="City"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>City</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="Region"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Region</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="PostalCode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Postal Code</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="Country"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Country</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="Fax"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Fax</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value || ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className="flex justify-end pt-4">
+             <Button type="submit" className="w-full md:w-auto">Save Changes</Button>
+          </div>
         </form>
       </Form>
     </div>

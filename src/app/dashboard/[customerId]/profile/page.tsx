@@ -1,10 +1,12 @@
+// src/app/dashboard/[customerId]/profile/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getCustomer } from "@/lib/db/db";
 import Link from "next/link";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+// ✅ IMPORTACIÓN SEGURA
+import { getCustomerAction } from "./actions";
+import { Button } from "@/components/ui/button";
 
 interface Customer {
   CustomerID: string;
@@ -13,111 +15,79 @@ interface Customer {
   ContactTitle: string;
   Address: string;
   City: string;
-  Region: string | null;
+  Region: string;
   PostalCode: string;
   Country: string;
   Phone: string;
-  Fax: string | null;
 }
 
-export default function CustomerProfile() {
-  const { customerId } = useParams();
+export default function ProfilePage() {
+  const params = useParams();
+  const customerId = Array.isArray(params.customerId) ? params.customerId[0] : params.customerId;
+
   const [customer, setCustomer] = useState<Customer | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchCustomer() {
-      try {
-        const customerData = await getCustomer(customerId as string);
-        setCustomer(customerData);
-      } catch (err) {
-        setError("Failed to fetch customer data");
-        console.error(err);
+    async function loadProfile() {
+      if (!customerId) return;
+      
+      const result = await getCustomerAction(customerId);
+      if (result.success && result.customer) {
+        setCustomer(result.customer as Customer);
       }
+      setLoading(false);
     }
-
-    fetchCustomer();
+    loadProfile();
   }, [customerId]);
 
-  if (error) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>Error</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    );
-  }
-
-  if (!customer) {
-    return <div>Loading...</div>;
-  }
+  if (loading) return <div className="p-8">Cargando perfil...</div>;
+  if (!customer) return <div className="p-8">Perfil no encontrado.</div>;
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Customer Profile</h1>
-      <div className="flex justify-end mb-4">
-        <Link
-          href={`/dashboard/${customerId}/profile/edit`}
-          className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
-        >
-          Edit Profile
-        </Link>
-      </div>
+    <div className="max-w-2xl mx-auto p-8 border rounded shadow-md bg-white">
+      <h1 className="text-2xl font-bold mb-6">Mi Perfil</h1>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white shadow-md rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">
-            Company Information
-          </h2>
-          <div className="space-y-2">
-            <p>
-              <span className="font-medium text-gray-600">Company Name:</span>{" "}
-              {customer.CompanyName}
-            </p>
-            <p>
-              <span className="font-medium text-gray-600">Contact Name:</span>{" "}
-              {customer.ContactName}
-            </p>
-            <p>
-              <span className="font-medium text-gray-600">Contact Title:</span>{" "}
-              {customer.ContactTitle}
-            </p>
-          </div>
+        <div>
+          <label className="font-semibold text-gray-600">ID Cliente</label>
+          <p>{customer.CustomerID}</p>
         </div>
-        <div className="bg-white shadow-md rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">
-            Contact Information
-          </h2>
-          <div className="space-y-2">
-            <p>
-              <span className="font-medium text-gray-600">Address:</span>{" "}
-              {customer.Address}
-            </p>
-            <p>
-              <span className="font-medium text-gray-600">City:</span>{" "}
-              {customer.City}
-            </p>
-            <p>
-              <span className="font-medium text-gray-600">Region:</span>{" "}
-              {customer.Region || "N/A"}
-            </p>
-            <p>
-              <span className="font-medium text-gray-600">Postal Code:</span>{" "}
-              {customer.PostalCode}
-            </p>
-            <p>
-              <span className="font-medium text-gray-600">Country:</span>{" "}
-              {customer.Country}
-            </p>
-            <p>
-              <span className="font-medium text-gray-600">Phone:</span>{" "}
-              {customer.Phone}
-            </p>
-            <p>
-              <span className="font-medium text-gray-600">Fax:</span>{" "}
-              {customer.Fax || "N/A"}
-            </p>
-          </div>
+        <div>
+          <label className="font-semibold text-gray-600">Empresa</label>
+          <p>{customer.CompanyName}</p>
         </div>
+        <div>
+          <label className="font-semibold text-gray-600">Contacto</label>
+          <p>{customer.ContactName}</p>
+        </div>
+        <div>
+          <label className="font-semibold text-gray-600">Título</label>
+          <p>{customer.ContactTitle}</p>
+        </div>
+         <div>
+          <label className="font-semibold text-gray-600">Teléfono</label>
+          <p>{customer.Phone}</p>
+        </div>
+      </div>
+
+      <div className="mt-6 border-t pt-4">
+        <h2 className="text-lg font-semibold mb-2">Dirección</h2>
+        <p>{customer.Address}</p>
+        <p>
+          {customer.City}, {customer.Region ? `${customer.Region}, ` : ""} 
+          {customer.PostalCode}
+        </p>
+        <p>{customer.Country}</p>
+      </div>
+
+      <div className="mt-8 flex gap-4">
+        <Link href={`/dashboard/${customerId}/profile/edit`}>
+          <Button>Editar Perfil</Button>
+        </Link>
+        <Link href={`/dashboard/${customerId}/change-password`}>
+          <Button variant="outline">Cambiar Contraseña</Button>
+        </Link>
       </div>
     </div>
   );
