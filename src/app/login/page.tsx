@@ -1,9 +1,11 @@
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////// -----     07-03-26 ----- CORRECCIÓN: Agregamos los roles al user y adaptamos el login con los roles de admin y user ----- ////
+
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-// ❌ ELIMINADO: import { associateCestaIdWithUsername, getUser } from "@/lib/db/db";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { hashPassword } from "@/lib/utils";
 import * as z from "zod";
@@ -19,8 +21,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/components/app/AuthContext";
-
-// ✅ AGREGADO: Importamos la Server Action
 import { loginAction } from "./actions";
 
 const formSchema = z.object({
@@ -32,7 +32,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { setIsLoggedIn, setUsername, setId, idCesta } = useAuth();
+  const { setIsLoggedIn, setUsername, setRole, setId, idCesta } = useAuth();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -47,32 +47,31 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // 1. Hashear password en cliente (Requisito 1.2)
       const hashedPassword = await hashPassword(values.password);
-      
-      // 2. Llamar a la Server Action en lugar de a la DB directamente
+
       const result = await loginAction({
         username: values.username,
         password: hashedPassword,
-        cestaId: idCesta.toString() // Pasamos el ID de la cesta actual
+        cestaId: idCesta.toString(),
       });
 
       if (result.success && result.user) {
-        // 3. Actualizar estado y LocalStorage
         setIsLoggedIn(true);
         setUsername(result.user.username);
-        // setId(result.user.id); // Si tu verifyUser devuelve ID
-        
-        // Guardamos el token recibido
+        setRole(result.user.role);
+
         localStorage.setItem("token", result.user.token || "");
         localStorage.setItem("user", JSON.stringify(result.user));
-        
-        // 4. Redirigir
-        router.push(`/dashboard/${result.user.username}`);
+        localStorage.setItem("role", result.user.role || "customer");
+
+        if (result.user.role === "admin" || result.user.role === "manager") {
+          router.push("/manager");
+        } else {
+          router.push(`/dashboard/${result.user.username}`);
+        }
       } else {
         setError(result.message || "Invalid username or password");
       }
-
     } catch (error) {
       setError(
         error instanceof Error
@@ -87,6 +86,7 @@ export default function LoginPage() {
   return (
     <div className="max-w-md mx-auto mt-8">
       <h1 className="text-2xl font-bold mb-4">Login</h1>
+
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           <FormField
@@ -102,6 +102,7 @@ export default function LoginPage() {
               </FormItem>
             )}
           />
+
           <FormField
             control={form.control}
             name="password"
@@ -115,11 +116,13 @@ export default function LoginPage() {
               </FormItem>
             )}
           />
+
           <Button type="submit" disabled={isLoading}>
             {isLoading ? "Logging in..." : "Login"}
           </Button>
         </form>
       </Form>
+
       {error && (
         <Alert variant="destructive" className="mt-4">
           <AlertTitle>Error</AlertTitle>
